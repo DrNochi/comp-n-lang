@@ -1,2 +1,4 @@
-bin/cl: main.cpp
-	g++ -g -o $@ $^
+sources := main.cpp lexer.cpp token.cpp
+
+bin/cl: $(sources)
+	g++ -Wpedantic -Werror -g -o $@ $^
