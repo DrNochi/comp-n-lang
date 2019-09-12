@@ -3,9 +3,9 @@
 #include <stdlib.h>
 #include <iostream>
 
-// Print an error message and exit
 [[noreturn]]
 inline void fail(const std::string message) {
+    // Print an error message and exit
     std::cerr << message << std::endl;
     exit(-1);
 }

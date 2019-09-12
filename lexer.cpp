@@ -1,5 +1,6 @@
 #include "lexer.h"
 
+#include <fstream>
 #include <sstream>
 
 #include "helpers.h"
@@ -15,6 +16,7 @@ const LexerState Lexer::state_transition_table[][(int)CharacterType::LENGTH] = {
     LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::Empty,      // EndOfFile
 };
 
+// Maps lexer states to token types (INVALID if not an accepting state)
 const TokenType Lexer::state_token_types[] = {
     TokenType::INVALID,
     TokenType::Identifier,
@@ -24,30 +26,52 @@ const TokenType Lexer::state_token_types[] = {
     TokenType::EndOfFile
 };
 
-Lexer::Lexer(const std::string& filepath) :
-    input(filepath),
-    state(LexerState::Empty)
+Lexer::Lexer(std::istream& input) :
+    input(input),
+    state(LexerState::Empty),
+    current_char(input.get())
 {
-    if (!input) fail("Could not open file");
-    current_char = input.get();
+    // Nothing
 }
 
+Lexer::Lexer(const std::string& filepath) :
+    Lexer(*new std::ifstream(filepath))
+{
+    // Check if filepath is valid/could be opened
+    if (!input) fail("Could not open file");
+
+    // Remember that input stream has been dynamically allocated
+    input_dynalloc = true;
+}
+
+Lexer::~Lexer()
+{
+    // Deallocate input stream if dynamically allocated
+    if (input_dynalloc) delete &input;
+}
+
+// Read exactly one token form the input stream
 Token Lexer::next()
 {
+    // Read next (partial) token
     Token token = _next();
 
-    // Check if any of the identifier tokens is actually a keyword
-    if (token.type == TokenType::Identifier && token.is_keyword())
+    // "Token transformations" (recognize keywords, reals/floats): (partial) token -> complete token
+    if (token.type == TokenType::Identifier && token.is_keyword()) { // Check if token is actually a keyword
         token.type = TokenType::Keyword;
-
-    if (token.type == TokenType::Integer) {
+    } else if (token.type == TokenType::Integer) { // Check if token is a real number
+        // Get next two (partial) tokens as lookahead
         Token dot = _next();
         Token fraction = _next();
+
+        // Check if interger is followed by a dot and another integer as decimal part
         if (dot.type == TokenType::Separator && dot.lexeme == "." && fraction.type == TokenType::Integer) {
+            // Construct new token of type Real
             std::ostringstream lexeme;
             lexeme << token.lexeme << "." << fraction.lexeme;
             token = { TokenType::Real, lexeme.str() };
         } else {
+            // Store tokens in lookahead buffer (not consumed)
             lookahead_buffer.push_back(dot);
             lookahead_buffer.push_back(fraction);
         }
@@ -57,17 +81,20 @@ Token Lexer::next()
     return token;
 }
 
+// Gets a (partial) token from the input stream
 Token Lexer::_next()
 {
+    // Return next token from lookahead buffer if available
     if (!lookahead_buffer.empty()) {
         Token token = lookahead_buffer.front();
         lookahead_buffer.pop_front();
         return token;
     }
 
-    std::ostringstream lexeme; // Lexeme buffer of the next token
+    // Lexeme buffer of the next token
+    std::ostringstream lexeme;
 
-    // Read input file
+    // Read input stream
     while (true) {
         // Get new state from transition table by using charater type
         CharacterType char_type = char_to_type(current_char);
@@ -76,14 +103,14 @@ Token Lexer::_next()
         // Check if the new state is valid or an error occured
         if (new_state == LexerState::INVALID) fail("Unexpected character");
 
-        // Check if token has been accepted by FSM (returns to state 0)
+        // Check if token has been accepted by FSM (returns to state Empty)
         if (new_state == LexerState::Empty && state != LexerState::Empty) {
             Token token = { state_token_types[(int)state], lexeme.str() };
-            state = LexerState::Empty;
-            return token;
+            state = LexerState::Empty; // Reset state
+            return token; // Return accepted token
         }
 
-        // Append current char to lexeme (except in state 'Empty' as this state does not correspond to a token, e.g. whitespace)
+        // Append current char to lexeme (except in state Empty & EndOfFile as these do not need lexeme data, e.g. skip whitespace)
         if (new_state != LexerState::Empty && new_state != LexerState::EndOfFile)
             lexeme << current_char;
 
@@ -96,16 +123,18 @@ Token Lexer::_next()
             while (!input.eof()) {
                 current_char = input.get();
                 if (current_char == '\r' || current_char == '\n')
-                    break;
+                    break; // Comment ended, line break found
             }
         }
     }
 }
 
+// Gets all available tokens from the input stream
 std::vector<Token> Lexer::read_all()
 {
-    std::vector<Token> tokens; // Resulting token stream
+    std::vector<Token> tokens;
 
+    // Read tokens until EndOfFile is found
     Token next_token;
     do tokens.push_back(next_token = next());
     while (next_token.type != TokenType::EndOfFile);
@@ -113,6 +142,7 @@ std::vector<Token> Lexer::read_all()
     return tokens;
 }
 
+// Converts input char to a CharacterType
 CharacterType Lexer::char_to_type(char character) const
 {
     if (character >= 'A' && character <= 'z') return CharacterType::Alpha;
@@ -151,5 +181,6 @@ CharacterType Lexer::char_to_type(char character) const
             return CharacterType::EndOfFile;
     }
 
+    // Invalid or unrecognized input
     fail("Invalid character");
 }

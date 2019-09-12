@@ -1,8 +1,8 @@
 #pragma once
 
-#include <fstream>
-#include <string>
 #include <deque>
+#include <istream>
+#include <string>
 #include <vector>
 
 #include "token.h"
@@ -31,7 +31,10 @@ enum class CharacterType {
 class Lexer {
 
 public:
+    Lexer(std::istream& input);
     Lexer(const std::string& filepath);
+
+    ~Lexer();
 
     Token next();
     std::vector<Token> read_all();
@@ -40,7 +43,8 @@ private:
     static const LexerState state_transition_table[][(int)CharacterType::LENGTH];
     static const TokenType state_token_types[];
 
-    std::ifstream input;
+    bool input_dynalloc = false;
+    std::istream& input;
     LexerState state;
     char current_char;
 

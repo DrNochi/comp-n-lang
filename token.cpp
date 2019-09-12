@@ -26,6 +26,7 @@ const std::string Token::type_strings[] = {
 
 bool Token::is_keyword() const
 {
+    // Check if lexeme is part of the keyword dictionary
     return keywords.find(lexeme) != keywords.end();
 }
 
