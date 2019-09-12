@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <string>
+#include <deque>
 #include <vector>
 
 #include "token.h"
@@ -11,6 +12,8 @@ enum class LexerState {
     Empty,
     Identifier,
     Integer,
+    Operator,
+    Separator,
     EndOfFile
 };
 
@@ -18,6 +21,8 @@ enum class CharacterType {
     Alpha,
     Digit,
     Dollar,
+    Operator,
+    Separator,
     Whitespace,
     EndOfFile,
     LENGTH
@@ -38,6 +43,9 @@ private:
     std::ifstream input;
     LexerState state;
     char current_char;
+
+    std::deque<Token> lookahead_buffer;
+    Token _next();
 
     CharacterType char_to_type(char character) const;
 

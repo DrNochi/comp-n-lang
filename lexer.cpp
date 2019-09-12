@@ -6,17 +6,21 @@
 
 // State transition table for the lexer FSM
 const LexerState Lexer::state_transition_table[][(int)CharacterType::LENGTH] = {
-//  Alpha                   Digit                   Dollar                  Whitespace              EndOfFile
-    LexerState::Identifier, LexerState::Integer,    LexerState::INVALID,    LexerState::Empty,      LexerState::EndOfFile,  // Empty
-    LexerState::Identifier, LexerState::Identifier, LexerState::Identifier, LexerState::Empty,      LexerState::Empty,      // Identifier
-    LexerState::Empty,      LexerState::Integer,    LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      // Integer
-    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::Empty,      // EndOfFile
+//  Alpha                   Digit                   Dollar                  Operator                Separator               Whitespace              EndOfFile
+    LexerState::Identifier, LexerState::Integer,    LexerState::INVALID,    LexerState::Operator,   LexerState::Separator,  LexerState::Empty,      LexerState::EndOfFile,  // Empty
+    LexerState::Identifier, LexerState::Identifier, LexerState::Identifier, LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      // Identifier
+    LexerState::Empty,      LexerState::Integer,    LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      // Integer
+    LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      // Operator
+    LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      // Separator
+    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::Empty,      // EndOfFile
 };
 
 const TokenType Lexer::state_token_types[] = {
     TokenType::INVALID,
     TokenType::Identifier,
     TokenType::Integer,
+    TokenType::Operator,
+    TokenType::Separator,
     TokenType::EndOfFile
 };
 
@@ -30,7 +34,38 @@ Lexer::Lexer(const std::string& filepath) :
 
 Token Lexer::next()
 {
-    std::stringstream lexeme; // Lexeme buffer of the next token
+    Token token = _next();
+
+    // Check if any of the identifier tokens is actually a keyword
+    if (token.type == TokenType::Identifier && token.is_keyword())
+        token.type = TokenType::Keyword;
+
+    if (token.type == TokenType::Integer) {
+        Token dot = _next();
+        Token fraction = _next();
+        if (dot.type == TokenType::Separator && dot.lexeme == "." && fraction.type == TokenType::Integer) {
+            std::ostringstream lexeme;
+            lexeme << token.lexeme << "." << fraction.lexeme;
+            token = { TokenType::Real, lexeme.str() };
+        } else {
+            lookahead_buffer.push_back(dot);
+            lookahead_buffer.push_back(fraction);
+        }
+    }
+
+    std::cout << "Accept: " << token << std::endl;
+    return token;
+}
+
+Token Lexer::_next()
+{
+    if (!lookahead_buffer.empty()) {
+        Token token = lookahead_buffer.front();
+        lookahead_buffer.pop_front();
+        return token;
+    }
+
+    std::ostringstream lexeme; // Lexeme buffer of the next token
 
     // Read input file
     while (true) {
@@ -44,14 +79,7 @@ Token Lexer::next()
         // Check if token has been accepted by FSM (returns to state 0)
         if (new_state == LexerState::Empty && state != LexerState::Empty) {
             Token token = { state_token_types[(int)state], lexeme.str() };
-
-            // Check if any of the identifier tokens is actually a keyword
-            if (token.is_keyword())
-                token.type = TokenType::Keyword;
-
             state = LexerState::Empty;
-
-            std::cout << "Accept: " << token << std::endl;
             return token;
         }
 
@@ -93,6 +121,27 @@ CharacterType Lexer::char_to_type(char character) const
     switch (character) {
         case '$':
             return CharacterType::Dollar;
+        case '+':
+        case '-':
+        case '*':
+        case '/':
+        case '%':
+        case '=':
+        case '<':
+        case '>':
+            return CharacterType::Operator;
+        case '(':
+        case ')':
+        case '{':
+        case '}':
+        case '[':
+        case ']':
+        case '\'':
+        case ',':
+        case '.':
+        case ':':
+        case ';':
+            return CharacterType::Separator;
         case ' ':
         case '\t':
         case '\r':

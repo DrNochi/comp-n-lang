@@ -18,12 +18,15 @@ const std::string Token::type_strings[] = {
     "Identifier",
     "Keyword",
     "Integer",
+    "Real",
+    "Operator",
+    "Separator",
     "EndOfFile"
 };
 
 bool Token::is_keyword() const
 {
-    return type == TokenType::Identifier && keywords.find(lexeme) != keywords.end();
+    return keywords.find(lexeme) != keywords.end();
 }
 
 std::ostream& operator<<(std::ostream& output_stream, const Token& token)
