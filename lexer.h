@@ -1,6 +1,5 @@
 #pragma once
 
-#include <deque>
 #include <istream>
 #include <string>
 #include <vector>
@@ -8,23 +7,32 @@
 #include "token.h"
 
 enum class LexerState {
-    INVALID = -1,
     Empty,
     Identifier,
     Integer,
+    IntegerDot,
+    Real,
     Operator,
     Separator,
-    EndOfFile
+    Comment,
+    CommentEnd,
+    EndOfFile,
+
+    LENGTH,
+    INVALID
 };
 
 enum class CharacterType {
     Alpha,
     Digit,
     Dollar,
+    Dot,
+    Exclamation,
     Operator,
     Separator,
     Whitespace,
     EndOfFile,
+
     LENGTH
 };
 
@@ -40,16 +48,11 @@ public:
     std::vector<Token> read_all();
 
 private:
-    static const LexerState state_transition_table[][(int)CharacterType::LENGTH];
-    static const TokenType state_token_types[];
-
-    bool input_dynalloc = false;
     std::istream& input;
+    bool input_dynalloc = false;
+
     LexerState state;
     char current_char;
-
-    std::deque<Token> lookahead_buffer;
-    Token _next();
 
     CharacterType char_to_type(char character) const;
 

@@ -2,28 +2,49 @@
 
 #include <fstream>
 #include <sstream>
+#include <unordered_set>
 
 #include "helpers.h"
 
 // State transition table for the lexer FSM
-const LexerState Lexer::state_transition_table[][(int)CharacterType::LENGTH] = {
-//  Alpha                   Digit                   Dollar                  Operator                Separator               Whitespace              EndOfFile
-    LexerState::Identifier, LexerState::Integer,    LexerState::INVALID,    LexerState::Operator,   LexerState::Separator,  LexerState::Empty,      LexerState::EndOfFile,  // Empty
-    LexerState::Identifier, LexerState::Identifier, LexerState::Identifier, LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      // Identifier
-    LexerState::Empty,      LexerState::Integer,    LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      // Integer
-    LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      // Operator
-    LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      // Separator
-    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::Empty,      // EndOfFile
+const LexerState state_transition_table[(int)LexerState::LENGTH][(int)CharacterType::LENGTH] = {
+//  Alpha                   Digit                   Dollar                  Dot                     Exclamation             Operator                Separator               Whitespace              EndOfFile
+    LexerState::Identifier, LexerState::Integer,    LexerState::INVALID,    LexerState::Separator,  LexerState::Comment,    LexerState::Operator,   LexerState::Separator,  LexerState::Empty,      LexerState::EndOfFile,
+    LexerState::Identifier, LexerState::Identifier, LexerState::Identifier, LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,
+    LexerState::Empty,      LexerState::Integer,    LexerState::Empty,      LexerState::IntegerDot, LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,
+    LexerState::INVALID,    LexerState::Real,       LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,
+    LexerState::Empty,      LexerState::Real,       LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,
+    LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,
+    LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,
+    LexerState::Comment,    LexerState::Comment,    LexerState::Comment,    LexerState::Comment,    LexerState::CommentEnd, LexerState::Comment,    LexerState::Comment,    LexerState::Comment,    LexerState::INVALID,
+    LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,      LexerState::Empty,
+    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::INVALID,    LexerState::Empty
 };
 
-// Maps lexer states to token types (INVALID if not an accepting state)
-const TokenType Lexer::state_token_types[] = {
-    TokenType::INVALID,
+// Maps lexer states to token types (NONE if not an accepting state)
+const TokenType state_token_types[(int)LexerState::LENGTH] = {
+    TokenType::NONE,
     TokenType::Identifier,
     TokenType::Integer,
+    TokenType::NONE,
+    TokenType::Real,
     TokenType::Operator,
     TokenType::Separator,
+    TokenType::NONE,
+    TokenType::NONE,
     TokenType::EndOfFile
+};
+
+// Map of all known keywords
+const std::unordered_set<std::string> keywords = {
+    "int", "float", "bool",
+    "if", "else", "then", "endif",
+    "while", "whileend",
+    "do", "doend",
+    "for", "forend",
+    "input", "output",
+    "and", "or",
+    "function"
 };
 
 Lexer::Lexer(std::istream& input) :
@@ -37,11 +58,11 @@ Lexer::Lexer(std::istream& input) :
 Lexer::Lexer(const std::string& filepath) :
     Lexer(*new std::ifstream(filepath))
 {
-    // Check if filepath is valid/could be opened
-    if (!input) fail("Could not open file");
-
     // Remember that input stream has been dynamically allocated
     input_dynalloc = true;
+
+    // Check if filepath is valid/could be opened
+    if (!input) fail("Could not open file");
 }
 
 Lexer::~Lexer()
@@ -50,47 +71,9 @@ Lexer::~Lexer()
     if (input_dynalloc) delete &input;
 }
 
-// Read exactly one token form the input stream
+// Reads exactly one token form the input stream
 Token Lexer::next()
 {
-    // Read next (partial) token
-    Token token = _next();
-
-    // "Token transformations" (recognize keywords, reals/floats): (partial) token -> complete token
-    if (token.type == TokenType::Identifier && token.is_keyword()) { // Check if token is actually a keyword
-        token.type = TokenType::Keyword;
-    } else if (token.type == TokenType::Integer) { // Check if token is a real number
-        // Get next two (partial) tokens as lookahead
-        Token dot = _next();
-        Token fraction = _next();
-
-        // Check if interger is followed by a dot and another integer as decimal part
-        if (dot.type == TokenType::Separator && dot.lexeme == "." && fraction.type == TokenType::Integer) {
-            // Construct new token of type Real
-            std::ostringstream lexeme;
-            lexeme << token.lexeme << "." << fraction.lexeme;
-            token = { TokenType::Real, lexeme.str() };
-        } else {
-            // Store tokens in lookahead buffer (not consumed)
-            lookahead_buffer.push_back(dot);
-            lookahead_buffer.push_back(fraction);
-        }
-    }
-
-    std::cout << "Accept: " << token << std::endl;
-    return token;
-}
-
-// Gets a (partial) token from the input stream
-Token Lexer::_next()
-{
-    // Return next token from lookahead buffer if available
-    if (!lookahead_buffer.empty()) {
-        Token token = lookahead_buffer.front();
-        lookahead_buffer.pop_front();
-        return token;
-    }
-
     // Lexeme buffer of the next token
     std::ostringstream lexeme;
 
@@ -103,11 +86,28 @@ Token Lexer::_next()
         // Check if the new state is valid or an error occured
         if (new_state == LexerState::INVALID) fail("Unexpected character");
 
-        // Check if token has been accepted by FSM (returns to state Empty)
+        // Check if the end of a code unit has been reached
         if (new_state == LexerState::Empty && state != LexerState::Empty) {
-            Token token = { state_token_types[(int)state], lexeme.str() };
-            state = LexerState::Empty; // Reset state
-            return token; // Return accepted token
+            TokenType type = state_token_types[(int)state];
+
+            // Reset state for next iteration
+            state = LexerState::Empty;
+
+            // Check if a token should be produced
+            if (type != TokenType::NONE) {
+                std::string lexeme_string = lexeme.str();
+
+                // Check if identifier is actually a keyword
+                if (type == TokenType::Identifier && keywords.find(lexeme_string) != keywords.end())
+                    type = TokenType::Keyword;
+
+                // Return accepted token
+                return { type, lexeme_string };
+            } else {
+                // Reset lexeme and continue with next iteration
+                lexeme.str("");
+                continue;
+            }
         }
 
         // Append current char to lexeme (except in state Empty & EndOfFile as these do not need lexeme data, e.g. skip whitespace)
@@ -117,15 +117,6 @@ Token Lexer::_next()
         // Set new state of the FSM and fetch new character for next iteration
         state = new_state;
         current_char = input.get();
-
-        // Skip line comment introduced by ! (exclamation mark)
-        if (current_char == '!') {
-            while (!input.eof()) {
-                current_char = input.get();
-                if (current_char == '\r' || current_char == '\n')
-                    break; // Comment ended, line break found
-            }
-        }
     }
 }
 
@@ -145,12 +136,19 @@ std::vector<Token> Lexer::read_all()
 // Converts input char to a CharacterType
 CharacterType Lexer::char_to_type(char character) const
 {
-    if (character >= 'A' && character <= 'z') return CharacterType::Alpha;
-    if (character >= '0' && character <= '9') return CharacterType::Digit;
+    if ((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z'))
+        return CharacterType::Alpha;
+    if (character >= '0' && character <= '9')
+        return CharacterType::Digit;
 
     switch (character) {
         case '$':
             return CharacterType::Dollar;
+        case '.':
+            return CharacterType::Dot;
+        case '!':
+            return CharacterType::Exclamation;
+
         case '+':
         case '-':
         case '*':
@@ -160,23 +158,25 @@ CharacterType Lexer::char_to_type(char character) const
         case '<':
         case '>':
             return CharacterType::Operator;
+
+        case '\'':
         case '(':
         case ')':
         case '{':
         case '}':
         case '[':
         case ']':
-        case '\'':
         case ',':
-        case '.':
         case ':':
         case ';':
             return CharacterType::Separator;
+
         case ' ':
         case '\t':
         case '\r':
         case '\n':
             return CharacterType::Whitespace;
+
         case std::ifstream::traits_type::eof():
             return CharacterType::EndOfFile;
     }

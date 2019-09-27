@@ -20,6 +20,7 @@ int main(int argument_count, char* arguments[])
 
     // Print out the list of tokens
     std::cout << "Tokens:" << std::endl;
-    for (Token& token : tokens) std::cout << token << ", ";
+    std::cout << "-------" << std::endl << std::endl;
+    for (Token& token : tokens) std::cout << token << ",\n";
     std::cout << std::endl;
 }
